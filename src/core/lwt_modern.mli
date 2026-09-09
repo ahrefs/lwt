@@ -80,7 +80,7 @@ We can handwavedly trace the execution of the progress. For this purpose, we con
 
 ```
 let* () = Lwt_io.write Lwt_io.stdout "name?" in         |  ⌜⌜·⌟
-let read_name = Lwt_io.read_line Lwt_io.stdin in        |      ⌜·      ⌟
+let read_name = Lwt_io.read_line Lwt_io.stdin in        |      ⌜·······⌟
 let timeout =                                           |       ⌜
   let* () = Lwt_unix.sleep 1. in                        |        ⌜·⌟
   Lwt.return ""                                         |           ⌜⌟
@@ -155,10 +155,23 @@ val zone :
   'a t
 val dont_wait : ?zone:zone -> (unit -> unit t) -> unit
 
+(* await for direct-style programming, only works when in a zone, but always in the zone anyway *)
+val await : 'a t -> 'a
+
+(* integrated awaiting *)
+module Direct : sig
+  val pause : unit -> unit
+  val first : 'a list -> 'a
+  val join : unit list -> unit
+  module Unix : sig
+    (* TODO: ~ the Lwt_unix module but with await applied *)
+  end
+end
+
 
 
 (* Librarian is for users who are writing a library on top of Lwt. Think writing `Aches`' `Lache`, or `Lwt_pipeline`, or `Lwt_exit`, or `Lwt_seq`, or `Lwt_list`, etc. Basically, when you are defining new abstractions or significantly extending the abstractions of Lwt, you likely need `Librarian`. *)
-module type Librarian : sig
+module Librarian : sig
 
     (* cancel a whole zone. no progress ever happens in this zone. promises of the zone are marked as rejected with `Cancelled`. *)
   val cancel : zone -> unit
@@ -196,7 +209,7 @@ module type Librarian : sig
 end
 
 (* Debugger is for users who are debugging their program. These shouldn't appear in code as it breaks abstraction. But breaking abstraction is useful for debugging. *)
-module type Debugger : sig
+module Debugger : sig
   type 'a state =
     | Resolved of 'a
     | Rejected of exn
