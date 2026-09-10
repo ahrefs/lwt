@@ -115,24 +115,36 @@ What the zones give you is a way to structure your concurrency. Specifically you
 
  *)
 
+(*
 
-(* The top-level of lwt-modern is intended for general use. *)
+# Optional function colouring
 
-(* promises are first-class values, do what you will (although don't polycompare) *)
-type 'a t = 'a Lwt.t
+Whilst the core concepts of Lwt_modern form a backwards-compatible superset of the core concepts of Lwt, the way that Lwt_modern allows you to interact with them differs greatly.
+Specifically: in Lwt function colouring is pervasive whereas it is optional in Lwt_modern.
+
+Function colouring is functions having the promise type indicated in their return type. E.g., `Lwt.pause : unit -> unit Lwt.t`. This carries from callee to caller until most of your code is affected.
+
+In order to use function colouring, open `Lwt_modern.Promise`, in order to avoid it, open `Lwt_modern.Direct`.
+
+ *)
+
+
+type 'a promise = 'a Lwt.t
+type 'a zone
+
+(* The top-level monadic promises variant of lwt-modern is intended for general use. You can open the module. *)
+module Promise : sig
 
 (* a distinct module so you can bring just the essential into your scope. also open Infix or Let, unless you are using the ppx *)
-module OpenMe : sig
-  type 'a promise = 'a Lwt.t
-  val return : 'a -> 'a t
-  val pause : unit -> unit t
-end
-include OpenMe
-module Infix : sig
+type 'a t = 'a promise
+val return : 'a -> 'a t
+val pause : unit -> unit t
+
+module InfixPromise : sig
   val (>>=) : 'a t -> ('a -> 'b t) -> 'b t
   val (>|=) : 'a t -> ('a -> 'b) -> 'b t
 end
-module Let : sig
+module LetPromise : sig
   val (let*) : 'a t -> ('a -> 'b t) -> 'b t
   val (and*) : 'a t -> 'b t -> ('a * 'b) t
 end
@@ -141,28 +153,33 @@ val bind : 'a t -> ('a -> 'b t) -> 'b t
 val match_ : (unit -> 'a t) -> ?exc:(exn -> 'b t) -> ('a -> 'b t) -> 'b t
 val finalize : (unit -> 'a t) -> (unit -> unit t) -> 'a t
 val both : 'a t -> 'b t -> ('a * 'b) t
-val all : 'a t list -> 'a list t
-val join : unit t list -> unit t
-val first : 'a t list -> 'a t
+val list : 'a t list -> 'a list t
+val all : unit t list -> unit t
+val first : cancel:bool -> 'a t list -> 'a t
 val firstn : 'a t list -> ('a list * 'a t list) t
 val map: 'a t -> ('a -> 'b) -> 'b t
 
-type zone
+(* `zone f` evaluates `f` in a new zone. *)
 val zone :
   ?async_exn_handler:(exn -> unit t) ->
   ?finalize:(unit -> unit t) ->
   (zone -> 'a t) ->
   'a t
-val dont_wait : ?zone:zone -> (unit -> unit t) -> unit
+
+(* if `?zone` is omitted, then it uses the ambient zone. *)
+val dont_wait : zone -> (unit -> unit t) -> unit
 
 (* await for direct-style programming, only works when in a zone, but always in the zone anyway *)
 val await : 'a t -> 'a
+
+end
 
 (* integrated awaiting *)
 module Direct : sig
   val pause : unit -> unit
   val first : 'a list -> 'a
-  val join : unit list -> unit
+  val all : unit list -> unit
+  val join zone
   module Unix : sig
     (* TODO: ~ the Lwt_unix module but with await applied *)
   end
@@ -174,11 +191,8 @@ end
 module Librarian : sig
 
     (* cancel a whole zone. no progress ever happens in this zone. promises of the zone are marked as rejected with `Cancelled`. *)
-  val cancel : zone -> unit
+  val cancel : 'a t (* takes promise as arg, but actually cancels the zone the promise belongs to *) -> unit
   val cancel_self : unit -> unit
-
-  (* cancels the zones of all the unresolved promises at the end *)
-  val first_and_cancel : 'a t list -> 'a t
 
   (* on_ attaches explicit callbacks to a promise, normal use should  *)
   val on_: 'a t -> ?resolve:('a -> unit) -> ?reject:(exn -> unit) -> unit -> unit
